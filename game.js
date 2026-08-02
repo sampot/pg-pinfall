@@ -91,12 +91,12 @@ export class PinfallGame {
     this.pegs = this.buildPegs();
     this.slots = this.buildSlots();
     /**
-     * Exit bumper sits inside the rail top so the ascending ball
-     * glances left through the open gate into the field.
+     * Right-side exit bumper: ascending ball glances LEFT through the open gate.
+     * (A left-side bumper would push the ball further into the rail.)
      */
     this.bumpers = /** @type {StaticCircle[]} */ ([
-      { x: RAIL_LEFT + 11, y: TOP_OPEN_Y + 20, r: 11 },
-      { x: FIELD_RIGHT - 30, y: TOP_OPEN_Y + 36, r: 10 },
+      { x: RAIL_RIGHT - 9, y: TOP_OPEN_Y + 18, r: 12 },
+      { x: FIELD_RIGHT - 26, y: TOP_OPEN_Y + 40, r: 10 },
     ]);
     this.launcherX = (RAIL_LEFT + RAIL_RIGHT) / 2;
     this.shake = 0;
@@ -251,21 +251,31 @@ export class PinfallGame {
 
     if (b.phase === "rail") {
       this.constrainRail(b, events);
-      // Natural spill: above gate, left wall opens; bumper peels ball into field
+      // Top funnel: open left wall + camber acceleration + exit bumper
       if (b.y < GATE_Y) {
+        b.vx -= 2200 * h; // sloped rail camber toward field
         for (const bumper of this.bumpers) {
-          if (this.circleImpulse(b, bumper.x, bumper.y, bumper.r, PEG_RESTITUTION, PEG_FRICTION, events, "wall")) {
-            // ok
-          }
+          this.circleImpulse(
+            b,
+            bumper.x,
+            bumper.y,
+            bumper.r,
+            PEG_RESTITUTION,
+            PEG_FRICTION,
+            events,
+            "wall",
+          );
         }
       }
       if (b.x + b.r < RAIL_LEFT - 1) {
         b.phase = "field";
+        // keep momentum; slight inward nudge if nearly scraping the wall
+        if (b.vx > -40) b.vx = -80 - Math.random() * 40;
         this.message = "落入釘雨";
         events.push("enter");
       }
-      // Miss: fell back to bottom of rail
-      if (b.y - b.r > H - 58 && b.vy > 80) {
+      // Miss: fell back to bottom of rail (only after leaving the launch pocket)
+      if (b.y - b.r > H - 58 && b.vy > 120 && b.y > GATE_Y + 80) {
         this.missRail(events);
         return true;
       }
