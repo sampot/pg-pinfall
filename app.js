@@ -54,6 +54,7 @@ function syncHud() {
 function handleEvents(events) {
   for (const e of events) {
     if (e === "launch") audio.launch();
+    else if (e === "enter") audio.wall();
     else if (e === "peg") audio.peg();
     else if (e === "wall") audio.wall();
     else if (e === "score") audio.score();

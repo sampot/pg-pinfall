@@ -1,17 +1,25 @@
 /**
- * 釘雨落珠 — simplified pachinko-style: launch → peg bounce → slot score.
+ * 釘雨落珠 — simplified pachinko-style: side rail up → fall through pegs → slot.
  */
 
 export const W = 420;
 export const H = 640;
 export const BALL_R = 7;
-export const PEG_R = 5.5;
+export const PEG_R = 5.2;
 export const GRAVITY = 1650;
-export const RESTITUTION = 0.62;
-export const FRICTION_AIR = 0.015;
+export const RESTITUTION = 0.58;
+export const FRICTION_AIR = 0.012;
 export const MAX_BALLS = 3;
-export const LAUNCH_MIN = 420;
-export const LAUNCH_MAX = 920;
+export const LAUNCH_MIN = 780;
+export const LAUNCH_MAX = 1180;
+
+/** Right launch rail (no pegs). */
+export const RAIL_LEFT = W - 52;
+export const RAIL_RIGHT = W - 14;
+export const FIELD_RIGHT = RAIL_LEFT - 4;
+export const FIELD_LEFT = 14;
+export const TOP_OPEN_Y = 52;
+export const SLOT_TOP = H - 56;
 
 /**
  * @typedef {object} Peg
@@ -29,7 +37,7 @@ export const LAUNCH_MAX = 920;
  * @property {number} vy
  * @property {number} r
  * @property {boolean} active
- * @property {number} trail
+ * @property {'rail' | 'field'} phase
  */
 
 /**
@@ -52,38 +60,36 @@ export class PinfallGame {
     this.power = 0.55;
     this.charging = false;
     this.chargeT = 0;
-    /** @type {'ready' | 'flying' | 'scored' | 'over'} */
+    /** @type {'ready' | 'flying' | 'over'} */
     this.status = "ready";
-    this.message = "按住發射蓄力，鬆手彈出";
+    this.message = "按住發射蓄力，鬆手沿軌道彈上";
     this.lastGain = 0;
     /** @type {Ball | null} */
     this.ball = null;
     this.pegs = this.buildPegs();
     this.slots = this.buildSlots();
-    this.launcherX = W * 0.5;
+    this.launcherX = (RAIL_LEFT + RAIL_RIGHT) / 2;
     this.shake = 0;
   }
 
   buildPegs() {
     /** @type {Peg[]} */
     const pegs = [];
-    const top = 70;
-    const bottom = H - 130;
-    const rows = 11;
-    const cols = 7;
+    const top = 88;
+    const bottom = SLOT_TOP - 36;
+    const rows = 12;
+    const cols = 6;
+    const x0 = FIELD_LEFT + 18;
+    const x1 = FIELD_RIGHT - 18;
     for (let row = 0; row < rows; row++) {
       const y = top + (row / (rows - 1)) * (bottom - top);
       const n = row % 2 === 0 ? cols : cols - 1;
-      const inset = row % 2 === 0 ? 0 : (W - 48) / (cols - 1) / 2;
+      const inset = row % 2 === 0 ? 0 : (x1 - x0) / (cols - 1) / 2;
       for (let c = 0; c < n; c++) {
-        const x = 24 + inset + (c / Math.max(1, n - 1)) * (W - 48);
+        const x = x0 + inset + (c / Math.max(1, n - 1)) * (x1 - x0);
         pegs.push({ x, y, r: PEG_R, flash: 0 });
       }
     }
-    // a few larger “featured” pegs
-    pegs.push({ x: W * 0.5, y: 200, r: PEG_R + 2.5, flash: 0 });
-    pegs.push({ x: W * 0.32, y: 320, r: PEG_R + 1.5, flash: 0 });
-    pegs.push({ x: W * 0.68, y: 320, r: PEG_R + 1.5, flash: 0 });
     return pegs;
   }
 
@@ -91,8 +97,8 @@ export class PinfallGame {
     const scores = [10, 30, 100, 50, 20, 5];
     const labels = ["10", "30", "百", "50", "20", "5"];
     const n = scores.length;
-    const margin = 18;
-    const usable = W - margin * 2;
+    const margin = FIELD_LEFT + 4;
+    const usable = FIELD_RIGHT - margin - 4;
     const w = usable / n;
     /** @type {Slot[]} */
     const slots = [];
@@ -123,31 +129,29 @@ export class PinfallGame {
   updateCharge(dt) {
     if (!this.charging) return;
     this.chargeT += dt;
-    // ping-pong power 0.15..1
     const t = this.chargeT * 1.35;
     const wave = 0.5 + 0.5 * Math.sin(t * Math.PI * 2 - Math.PI / 2);
     this.power = 0.18 + wave * 0.82;
   }
 
   release() {
-    if (!this.charging || this.status !== "ready") return { ok: false, events: [] };
+    if (!this.charging || this.status !== "ready") {
+      return { ok: false, events: /** @type {string[]} */ ([]) };
+    }
     this.charging = false;
-    const p = this.power;
-    const speed = LAUNCH_MIN + p * (LAUNCH_MAX - LAUNCH_MIN);
-    // slight random horizontal aim from launcher channel
-    const aim = (Math.random() - 0.5) * 110;
+    const speed = LAUNCH_MIN + this.power * (LAUNCH_MAX - LAUNCH_MIN);
     this.ballsLeft -= 1;
     this.ball = {
-      x: this.launcherX + (Math.random() - 0.5) * 6,
-      y: H - 78,
-      vx: aim * 0.35,
+      x: this.launcherX,
+      y: H - 72,
+      vx: (Math.random() - 0.5) * 20,
       vy: -speed,
       r: BALL_R,
       active: true,
-      trail: 0,
+      phase: "rail",
     };
     this.status = "flying";
-    this.message = "珠子飛上去了";
+    this.message = "沿軌道上升…";
     this.lastGain = 0;
     return { ok: true, events: /** @type {string[]} */ (["launch"]) };
   }
@@ -163,7 +167,6 @@ export class PinfallGame {
       if (s.flash > 0) s.flash = Math.max(0, s.flash - dt * 2.2);
     }
     if (this.shake > 0) this.shake = Math.max(0, this.shake - dt * 8);
-
     if (this.charging) this.updateCharge(dt);
 
     if (this.status !== "flying" || !this.ball?.active) {
@@ -179,82 +182,128 @@ export class PinfallGame {
     for (let s = 0; s < steps; s++) {
       b.vy += GRAVITY * h;
       b.vx *= 1 - FRICTION_AIR * h * 60;
-      b.vy *= 1 - FRICTION_AIR * 0.35 * h * 60;
+      b.vy *= 1 - FRICTION_AIR * 0.25 * h * 60;
       b.x += b.vx * h;
       b.y += b.vy * h;
 
-      // side walls
-      const left = 14 + b.r;
-      const right = W - 14 - b.r;
-      if (b.x < left) {
-        b.x = left;
-        b.vx = Math.abs(b.vx) * RESTITUTION;
-        events.push("wall");
-      } else if (b.x > right) {
-        b.x = right;
-        b.vx = -Math.abs(b.vx) * RESTITUTION;
-        events.push("wall");
-      }
-
-      // top bumper
-      if (b.y < 28 + b.r) {
-        b.y = 28 + b.r;
-        b.vy = Math.abs(b.vy) * RESTITUTION;
-        events.push("wall");
-      }
-
-      // peg collisions
-      for (const peg of this.pegs) {
-        const dx = b.x - peg.x;
-        const dy = b.y - peg.y;
-        const dist = Math.hypot(dx, dy);
-        const min = b.r + peg.r;
-        if (dist < min && dist > 1e-4) {
-          const nx = dx / dist;
-          const ny = dy / dist;
-          const overlap = min - dist;
-          b.x += nx * overlap;
-          b.y += ny * overlap;
-          const vn = b.vx * nx + b.vy * ny;
-          if (vn < 0) {
-            b.vx -= (1 + RESTITUTION) * vn * nx;
-            b.vy -= (1 + RESTITUTION) * vn * ny;
-            // tiny tangential kick so paths diverge
-            b.vx += -ny * (18 + Math.random() * 28);
-            b.vy += nx * (18 + Math.random() * 28);
-          }
-          peg.flash = 1;
-          events.push("peg");
+      if (b.phase === "rail") {
+        this.constrainRail(b, events);
+        // Reach top opening → spill into field
+        if (b.y < TOP_OPEN_Y + b.r + 8) {
+          b.phase = "field";
+          b.y = TOP_OPEN_Y + b.r + 10;
+          b.vx = -220 - Math.random() * 160;
+          b.vy = Math.max(40, Math.abs(b.vy) * 0.25);
+          this.message = "落入釘雨";
+          events.push("enter");
         }
-      }
+      } else {
+        this.constrainField(b, events);
+        this.collidePegs(b, events);
 
-      // slot zone
-      const slotY = H - 52;
-      if (b.y + b.r >= slotY) {
-        const slot = this.slots.find((sl) => b.x >= sl.x0 && b.x < sl.x1);
-        if (slot) {
-          this.scoreSlot(slot, events);
-          return { events };
+        if (b.y + b.r >= SLOT_TOP) {
+          this.landInSlot(b, events);
+          return { events: uniqueTail(events, 8) };
         }
-        // between dividers — nudge into nearest
-        let best = this.slots[0];
-        let bestD = Infinity;
-        for (const sl of this.slots) {
-          const mid = (sl.x0 + sl.x1) / 2;
-          const d = Math.abs(b.x - mid);
-          if (d < bestD) {
-            bestD = d;
-            best = sl;
-          }
-        }
-        this.scoreSlot(best, events);
-        return { events };
       }
     }
 
-    b.trail = Math.min(1, b.trail + dt * 2);
-    // dedupe noisy peg/wall spam for caller (keep last few unique-ish)
     return { events: uniqueTail(events, 6) };
+  }
+
+  /**
+   * @param {Ball} b
+   * @param {string[]} events
+   */
+  constrainRail(b, events) {
+    const left = RAIL_LEFT + b.r + 1;
+    const right = RAIL_RIGHT - b.r - 1;
+    if (b.x < left) {
+      b.x = left;
+      b.vx = Math.abs(b.vx) * 0.2;
+    } else if (b.x > right) {
+      b.x = right;
+      b.vx = -Math.abs(b.vx) * 0.2;
+    }
+    // rail floor not needed while ascending; soft top handled by phase change
+    if (b.y > H - 20) {
+      b.y = H - 20;
+      b.vy = -Math.abs(b.vy);
+      events.push("wall");
+    }
+  }
+
+  /**
+   * @param {Ball} b
+   * @param {string[]} events
+   */
+  constrainField(b, events) {
+    const left = FIELD_LEFT + b.r;
+    const right = FIELD_RIGHT - b.r;
+    if (b.x < left) {
+      b.x = left;
+      b.vx = Math.abs(b.vx) * RESTITUTION;
+      events.push("wall");
+    } else if (b.x > right) {
+      b.x = right;
+      b.vx = -Math.abs(b.vx) * RESTITUTION;
+      events.push("wall");
+    }
+    if (b.y < TOP_OPEN_Y + b.r) {
+      b.y = TOP_OPEN_Y + b.r;
+      b.vy = Math.abs(b.vy) * RESTITUTION;
+      events.push("wall");
+    }
+  }
+
+  /**
+   * @param {Ball} b
+   * @param {string[]} events
+   */
+  collidePegs(b, events) {
+    for (const peg of this.pegs) {
+      const dx = b.x - peg.x;
+      const dy = b.y - peg.y;
+      const dist = Math.hypot(dx, dy);
+      const min = b.r + peg.r;
+      if (dist >= min || dist <= 1e-4) continue;
+      const nx = dx / dist;
+      const ny = dy / dist;
+      const overlap = min - dist;
+      b.x += nx * overlap;
+      b.y += ny * overlap;
+      const vn = b.vx * nx + b.vy * ny;
+      if (vn < 0) {
+        b.vx -= (1 + RESTITUTION) * vn * nx;
+        b.vy -= (1 + RESTITUTION) * vn * ny;
+        b.vx += -ny * (12 + Math.random() * 22);
+        b.vy += nx * (12 + Math.random() * 22);
+      }
+      peg.flash = 1;
+      events.push("peg");
+    }
+  }
+
+  /**
+   * @param {Ball} b
+   * @param {string[]} events
+   */
+  landInSlot(b, events) {
+    let slot = this.slots.find((sl) => b.x >= sl.x0 && b.x < sl.x1);
+    if (!slot) {
+      let best = this.slots[0];
+      let bestD = Infinity;
+      for (const sl of this.slots) {
+        const mid = (sl.x0 + sl.x1) / 2;
+        const d = Math.abs(b.x - mid);
+        if (d < bestD) {
+          bestD = d;
+          best = sl;
+        }
+      }
+      slot = best;
+    }
+    this.scoreSlot(slot, events);
   }
 
   /**
@@ -278,11 +327,6 @@ export class PinfallGame {
       this.message = `進「${slot.label}」＋${slot.score} · 剩 ${this.ballsLeft} 珠`;
     }
   }
-
-  setPowerFromPointer(norm01) {
-    if (this.status !== "ready") return;
-    this.power = clamp(norm01, 0.15, 1);
-  }
 }
 
 /**
@@ -295,13 +339,4 @@ function uniqueTail(arr, n) {
     if (!out.includes(arr[i])) out.push(arr[i]);
   }
   return out.reverse();
-}
-
-/**
- * @param {number} v
- * @param {number} a
- * @param {number} b
- */
-function clamp(v, a, b) {
-  return Math.max(a, Math.min(b, v));
 }
