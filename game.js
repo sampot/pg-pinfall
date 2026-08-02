@@ -116,8 +116,8 @@ export class PinfallGame {
     const x0 = FIELD_LEFT + 22;
     const x1 = FIELD_RIGHT - 48; // leave clear corridor by rail exit
     /** Top-right entry mouth — keep empty so the ball can cross in. */
-    const clearX = FIELD_RIGHT - 55;
-    const clearY = 175;
+    const clearX = FIELD_RIGHT - 70;
+    const clearY = 200;
     for (let row = 0; row < rows; row++) {
       const y = top + (row / (rows - 1)) * (bottom - top);
       const n = row % 2 === 0 ? cols : cols - 1;
@@ -276,10 +276,12 @@ export class PinfallGame {
       }
       if (b.x + b.r < RAIL_LEFT - 1) {
         b.phase = "field";
-        // Inject into mid-field, not pinned against the rail wall
-        b.x = Math.min(b.x, FIELD_RIGHT - 36);
-        b.vx = -340 - Math.random() * 160;
-        b.vy = Math.max(60, b.vy * 0.55 + 40);
+        // Place well inside the board so the rail wall doesn't trap the ball
+        const mid = (FIELD_LEFT + FIELD_RIGHT) / 2;
+        b.x = mid + 36 + Math.random() * 28; // upper-center-right, then fall through pegs
+        b.y = Math.max(b.y, TOP_OPEN_Y + 28);
+        b.vx = -180 - Math.random() * 220;
+        b.vy = 90 + Math.random() * 80;
         this.message = "落入釘雨";
         events.push("enter");
       }
