@@ -56,8 +56,8 @@ export function drawScene(ctx, game) {
   ctx.fillStyle = "rgba(94,234,212,0.15)";
   ctx.fillRect(RAIL_LEFT - 4, TOP_OPEN_Y, 4, GATE_Y - TOP_OPEN_Y);
 
-  // static bumpers at rail exit
-  for (const bumper of game.bumpers) {
+  // rail + field bumpers
+  for (const bumper of [...game.railBumpers, ...game.fieldBumpers]) {
     ctx.beginPath();
     ctx.arc(bumper.x, bumper.y, bumper.r, 0, Math.PI * 2);
     ctx.fillStyle = "rgba(251,191,36,0.35)";
@@ -66,6 +66,10 @@ export function drawScene(ctx, game) {
     ctx.lineWidth = 1.5;
     ctx.stroke();
   }
+
+  // entry corridor hint (no pegs)
+  ctx.fillStyle = "rgba(94,234,212,0.06)";
+  ctx.fillRect(FIELD_RIGHT - 55, TOP_OPEN_Y, 55, 120);
 
   ctx.fillStyle = "rgba(255,255,255,0.4)";
   ctx.font = "600 9px system-ui,sans-serif";

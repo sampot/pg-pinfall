@@ -91,12 +91,15 @@ export class PinfallGame {
     this.pegs = this.buildPegs();
     this.slots = this.buildSlots();
     /**
-     * Right-side exit bumper: ascending ball glances LEFT through the open gate.
-     * (A left-side bumper would push the ball further into the rail.)
+     * Only inside the rail — peels ball left through the gate.
+     * No bumper on the field side of the exit (that was trapping balls).
      */
-    this.bumpers = /** @type {StaticCircle[]} */ ([
-      { x: RAIL_RIGHT - 9, y: TOP_OPEN_Y + 18, r: 12 },
-      { x: FIELD_RIGHT - 26, y: TOP_OPEN_Y + 40, r: 10 },
+    this.railBumpers = /** @type {StaticCircle[]} */ ([
+      { x: RAIL_RIGHT - 9, y: TOP_OPEN_Y + 18, r: 11 },
+    ]);
+    /** Deep in the field: gentle scatter, away from the exit mouth. */
+    this.fieldBumpers = /** @type {StaticCircle[]} */ ([
+      { x: FIELD_LEFT + 52, y: TOP_OPEN_Y + 70, r: 9 },
     ]);
     this.launcherX = (RAIL_LEFT + RAIL_RIGHT) / 2;
     this.shake = 0;
@@ -106,18 +109,22 @@ export class PinfallGame {
   buildPegs() {
     /** @type {Peg[]} */
     const pegs = [];
-    const top = 96;
+    const top = 118;
     const bottom = SLOT_TOP - 40;
-    const rows = 12;
+    const rows = 11;
     const cols = 6;
-    const x0 = FIELD_LEFT + 20;
-    const x1 = FIELD_RIGHT - 22;
+    const x0 = FIELD_LEFT + 22;
+    const x1 = FIELD_RIGHT - 48; // leave clear corridor by rail exit
+    /** Top-right entry mouth — keep empty so the ball can cross in. */
+    const clearX = FIELD_RIGHT - 55;
+    const clearY = 175;
     for (let row = 0; row < rows; row++) {
       const y = top + (row / (rows - 1)) * (bottom - top);
       const n = row % 2 === 0 ? cols : cols - 1;
       const inset = row % 2 === 0 ? 0 : (x1 - x0) / (cols - 1) / 2;
       for (let c = 0; c < n; c++) {
         const x = x0 + inset + (c / Math.max(1, n - 1)) * (x1 - x0);
+        if (x > clearX && y < clearY) continue;
         pegs.push({ x, y, r: PEG_R, flash: 0 });
       }
     }
@@ -251,10 +258,10 @@ export class PinfallGame {
 
     if (b.phase === "rail") {
       this.constrainRail(b, events);
-      // Top funnel: open left wall + camber acceleration + exit bumper
+      // Top funnel: open left wall + camber + rail-only bumper
       if (b.y < GATE_Y) {
-        b.vx -= 2200 * h; // sloped rail camber toward field
-        for (const bumper of this.bumpers) {
+        b.vx -= 2800 * h;
+        for (const bumper of this.railBumpers) {
           this.circleImpulse(
             b,
             bumper.x,
@@ -269,8 +276,10 @@ export class PinfallGame {
       }
       if (b.x + b.r < RAIL_LEFT - 1) {
         b.phase = "field";
-        // keep momentum; slight inward nudge if nearly scraping the wall
-        if (b.vx > -40) b.vx = -80 - Math.random() * 40;
+        // Inject into mid-field, not pinned against the rail wall
+        b.x = Math.min(b.x, FIELD_RIGHT - 36);
+        b.vx = -340 - Math.random() * 160;
+        b.vy = Math.max(60, b.vy * 0.55 + 40);
         this.message = "落入釘雨";
         events.push("enter");
       }
@@ -281,7 +290,7 @@ export class PinfallGame {
       }
     } else {
       this.constrainField(b, events);
-      for (const bumper of this.bumpers) {
+      for (const bumper of this.fieldBumpers) {
         this.circleImpulse(
           b,
           bumper.x,
@@ -445,8 +454,10 @@ export class PinfallGame {
     } else if (b.x > right) {
       b.x = right;
       if (b.vx > 0) {
-        b.vx = -b.vx * WALL_RESTITUTION;
-        b.vy *= 1 - WALL_FRICTION * 0.4;
+        // Near the exit mouth, kick firmly back into the board
+        const kick = b.y < 200 ? 0.72 : WALL_RESTITUTION;
+        b.vx = -Math.max(Math.abs(b.vx) * kick, b.y < 200 ? 220 : 0);
+        b.vy *= 1 - WALL_FRICTION * 0.25;
         events.push("wall");
       }
     }
