@@ -21,8 +21,8 @@ export const DRAG = 0.00055;
 export const MAX_SPEED = 2100;
 export const FIXED_DT = 1 / 320;
 export const MAX_BALLS = 3;
-export const LAUNCH_MIN = 1320;
-export const LAUNCH_MAX = 1720;
+export const LAUNCH_MIN = 1450;
+export const LAUNCH_MAX = 1850;
 
 /** Right launch rail (no pegs). */
 export const RAIL_LEFT = W - 52;
@@ -90,10 +90,13 @@ export class PinfallGame {
     this.ball = null;
     this.pegs = this.buildPegs();
     this.slots = this.buildSlots();
-    /** Corner bumper that peels the ball out of the rail. */
+    /**
+     * Exit bumper sits inside the rail top so the ascending ball
+     * glances left through the open gate into the field.
+     */
     this.bumpers = /** @type {StaticCircle[]} */ ([
-      { x: RAIL_LEFT - 2, y: TOP_OPEN_Y + 22, r: 13 },
-      { x: FIELD_RIGHT - 28, y: TOP_OPEN_Y + 14, r: 9 },
+      { x: RAIL_LEFT + 11, y: TOP_OPEN_Y + 20, r: 11 },
+      { x: FIELD_RIGHT - 30, y: TOP_OPEN_Y + 36, r: 10 },
     ]);
     this.launcherX = (RAIL_LEFT + RAIL_RIGHT) / 2;
     this.shake = 0;
@@ -159,7 +162,8 @@ export class PinfallGame {
     this.chargeT += dt;
     const t = this.chargeT * 1.35;
     const wave = 0.5 + 0.5 * Math.sin(t * Math.PI * 2 - Math.PI / 2);
-    this.power = 0.18 + wave * 0.82;
+    // Keep a playable floor so light taps still clear the rail.
+    this.power = 0.35 + wave * 0.65;
   }
 
   release() {
