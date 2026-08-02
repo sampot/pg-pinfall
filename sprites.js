@@ -56,20 +56,31 @@ export function drawScene(ctx, game) {
   ctx.fillStyle = "rgba(94,234,212,0.15)";
   ctx.fillRect(RAIL_LEFT - 4, TOP_OPEN_Y, 4, GATE_Y - TOP_OPEN_Y);
 
-  // rail + field bumpers
-  for (const bumper of [...game.railBumpers, ...game.fieldBumpers]) {
+  // rail bumper + entry chute (continuous slide path)
+  for (const bumper of game.railBumpers) {
     ctx.beginPath();
     ctx.arc(bumper.x, bumper.y, bumper.r, 0, Math.PI * 2);
-    ctx.fillStyle = "rgba(251,191,36,0.35)";
+    ctx.fillStyle = "rgba(251,191,36,0.4)";
     ctx.fill();
-    ctx.strokeStyle = "rgba(253,224,71,0.75)";
+    ctx.strokeStyle = "rgba(253,224,71,0.8)";
     ctx.lineWidth = 1.5;
     ctx.stroke();
   }
-
-  // entry corridor hint (no pegs)
-  ctx.fillStyle = "rgba(94,234,212,0.06)";
-  ctx.fillRect(FIELD_RIGHT - 55, TOP_OPEN_Y, 55, 120);
+  ctx.strokeStyle = "rgba(94,234,212,0.35)";
+  ctx.lineWidth = 3;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  game.chute.forEach((bead, i) => {
+    if (i === 0) ctx.moveTo(bead.x, bead.y);
+    else ctx.lineTo(bead.x, bead.y);
+  });
+  ctx.stroke();
+  for (const bead of game.chute) {
+    ctx.beginPath();
+    ctx.arc(bead.x, bead.y, bead.r * 0.55, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(94,234,212,0.25)";
+    ctx.fill();
+  }
 
   ctx.fillStyle = "rgba(255,255,255,0.4)";
   ctx.font = "600 9px system-ui,sans-serif";

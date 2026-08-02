@@ -88,36 +88,50 @@ export class PinfallGame {
     this.lastGain = 0;
     /** @type {Ball | null} */
     this.ball = null;
-    this.pegs = this.buildPegs();
     this.slots = this.buildSlots();
-    /**
-     * Only inside the rail — peels ball left through the gate.
-     * No bumper on the field side of the exit (that was trapping balls).
-     */
+    /** Inside rail — peels ball left through the gate (continuous, no teleport). */
     this.railBumpers = /** @type {StaticCircle[]} */ ([
-      { x: RAIL_RIGHT - 9, y: TOP_OPEN_Y + 18, r: 11 },
+      { x: RAIL_RIGHT - 8, y: TOP_OPEN_Y + 16, r: 10 },
     ]);
-    /** Deep in the field: gentle scatter, away from the exit mouth. */
-    this.fieldBumpers = /** @type {StaticCircle[]} */ ([
-      { x: FIELD_LEFT + 52, y: TOP_OPEN_Y + 70, r: 9 },
-    ]);
+    /**
+     * Smooth chute floor from rail mouth into the board.
+     * Ball rolls along these — no position snaps.
+     */
+    this.chute = this.buildChute();
+    this.pegs = this.buildPegs();
     this.launcherX = (RAIL_LEFT + RAIL_RIGHT) / 2;
     this.shake = 0;
     this.physAcc = 0;
   }
 
+  buildChute() {
+    /** @type {StaticCircle[]} */
+    const chute = [];
+    const n = 10;
+    for (let i = 0; i < n; i++) {
+      const t = i / (n - 1);
+      // From just inside the rail mouth, sloping down-left into mid-field
+      chute.push({
+        x: RAIL_LEFT - 6 - t * 130,
+        y: TOP_OPEN_Y + 38 + t * 70,
+        r: 7.5,
+      });
+    }
+    return chute;
+  }
+
   buildPegs() {
     /** @type {Peg[]} */
     const pegs = [];
-    const top = 118;
+    const top = 130;
     const bottom = SLOT_TOP - 40;
-    const rows = 11;
+    const rows = 10;
     const cols = 6;
     const x0 = FIELD_LEFT + 22;
-    const x1 = FIELD_RIGHT - 48; // leave clear corridor by rail exit
-    /** Top-right entry mouth — keep empty so the ball can cross in. */
-    const clearX = FIELD_RIGHT - 70;
-    const clearY = 200;
+    const x1 = FIELD_RIGHT - 40;
+    /** Keep chute path empty. */
+    const clearX = FIELD_RIGHT - 140;
+    const clearY = 230;
     for (let row = 0; row < rows; row++) {
       const y = top + (row / (rows - 1)) * (bottom - top);
       const n = row % 2 === 0 ? cols : cols - 1;
@@ -125,6 +139,15 @@ export class PinfallGame {
       for (let c = 0; c < n; c++) {
         const x = x0 + inset + (c / Math.max(1, n - 1)) * (x1 - x0);
         if (x > clearX && y < clearY) continue;
+        // Also skip anything overlapping the chute beads
+        let blocked = false;
+        for (const cire of this.chute) {
+          if (Math.hypot(x - cire.x, y - cire.y) < cire.r + PEG_R + 10) {
+            blocked = true;
+            break;
+          }
+        }
+        if (blocked) continue;
         pegs.push({ x, y, r: PEG_R, flash: 0 });
       }
     }
@@ -258,9 +281,9 @@ export class PinfallGame {
 
     if (b.phase === "rail") {
       this.constrainRail(b, events);
-      // Top funnel: open left wall + camber + rail-only bumper
+      // Top funnel: open left wall + camber + rail bumper (velocity only)
       if (b.y < GATE_Y) {
-        b.vx -= 2800 * h;
+        b.vx -= 2400 * h;
         for (const bumper of this.railBumpers) {
           this.circleImpulse(
             b,
@@ -273,15 +296,24 @@ export class PinfallGame {
             "wall",
           );
         }
+        // Chute starts at the mouth — continuous slide into the field
+        for (const bead of this.chute) {
+          this.circleImpulse(
+            b,
+            bead.x,
+            bead.y,
+            bead.r,
+            0.28,
+            0.4,
+            events,
+            "wall",
+          );
+        }
       }
       if (b.x + b.r < RAIL_LEFT - 1) {
         b.phase = "field";
-        // Place well inside the board so the rail wall doesn't trap the ball
-        const mid = (FIELD_LEFT + FIELD_RIGHT) / 2;
-        b.x = mid + 36 + Math.random() * 28; // upper-center-right, then fall through pegs
-        b.y = Math.max(b.y, TOP_OPEN_Y + 28);
-        b.vx = -180 - Math.random() * 220;
-        b.vy = 90 + Math.random() * 80;
+        // Continuous: do NOT teleport — only ensure we're still moving left
+        if (b.vx > -40) b.vx -= 90;
         this.message = "落入釘雨";
         events.push("enter");
       }
@@ -292,17 +324,20 @@ export class PinfallGame {
       }
     } else {
       this.constrainField(b, events);
-      for (const bumper of this.fieldBumpers) {
-        this.circleImpulse(
-          b,
-          bumper.x,
-          bumper.y,
-          bumper.r,
-          PEG_RESTITUTION,
-          PEG_FRICTION,
-          events,
-          "wall",
-        );
+      // Keep sliding on chute while still in the upper entry zone
+      if (b.y < 220) {
+        for (const bead of this.chute) {
+          this.circleImpulse(
+            b,
+            bead.x,
+            bead.y,
+            bead.r,
+            0.28,
+            0.4,
+            events,
+            "wall",
+          );
+        }
       }
       // Multiple passes so ball doesn't sink into dense peg clusters
       for (let pass = 0; pass < 3; pass++) {
@@ -372,8 +407,8 @@ export class PinfallGame {
     const tx = -ny;
     const ty = nx;
 
-    // separate
-    const overlap = min - dist;
+    // separate (cap per step so deep overlaps don't look like teleports)
+    const overlap = Math.min(min - dist, b.r * 0.85);
     b.x += nx * overlap;
     b.y += ny * overlap;
 
