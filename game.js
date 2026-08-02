@@ -6,12 +6,13 @@ export const W = 420;
 export const H = 640;
 export const BALL_R = 7;
 export const PEG_R = 5.2;
-export const GRAVITY = 1650;
+export const GRAVITY = 1400;
 export const RESTITUTION = 0.58;
-export const FRICTION_AIR = 0.012;
+export const FRICTION_AIR = 0.008;
 export const MAX_BALLS = 3;
-export const LAUNCH_MIN = 780;
-export const LAUNCH_MAX = 1180;
+/** Must clear rail height (~520px) against gravity — min ≈ √(2gh). */
+export const LAUNCH_MIN = 1280;
+export const LAUNCH_MAX = 1680;
 
 /** Right launch rail (no pegs). */
 export const RAIL_LEFT = W - 52;
@@ -225,10 +226,10 @@ export class PinfallGame {
       b.x = right;
       b.vx = -Math.abs(b.vx) * 0.2;
     }
-    // rail floor not needed while ascending; soft top handled by phase change
-    if (b.y > H - 20) {
-      b.y = H - 20;
-      b.vy = -Math.abs(b.vy);
+    // Fell back to rail floor without clearing the top — nudge up once more
+    if (b.y > H - 68 && b.vy > 0) {
+      b.y = H - 72;
+      b.vy = -(LAUNCH_MIN + 80);
       events.push("wall");
     }
   }
