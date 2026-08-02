@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="釘雨落珠：發射、撞釘、入洞得分。純前端 Playgrounds SAM，致敬小鋼珠玩法類型。"
+    />
+    <title>釘雨落珠</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main>
+      <header class="hero">
+        <h1>釘雨落珠</h1>
+        <p class="tagline">發射 · 撞釘 · 入洞 · 純娛樂</p>
+      </header>
+
+      <section class="meter" aria-label="分數">
+        <div class="meter-item">
+          <span class="label">分數</span>
+          <strong id="score">0</strong>
+        </div>
+        <div class="meter-item">
+          <span class="label">剩餘珠</span>
+          <strong id="balls">3</strong>
+        </div>
+        <div class="meter-actions">
+          <button type="button" id="btn-mute" class="secondary" aria-pressed="true">
+            音效開
+          </button>
+        </div>
+      </section>
+
+      <div class="stage">
+        <canvas
+          id="game"
+          width="420"
+          height="640"
+          role="img"
+          aria-label="釘雨落珠機台"
+        ></canvas>
+      </div>
+
+      <p id="status" class="status" role="status">按住發射蓄力，鬆手彈出</p>
+
+      <div class="controls">
+        <button type="button" id="btn-launch">按住發射</button>
+        <button type="button" id="btn-reset" class="secondary">新局</button>
+      </div>
+
+      <p class="hint">
+        按住蓄力、鬆手從下方彈出；珠子撞釘彈跳，落入底部分數格。每局三珠，純娛樂計分。名稱與盤面為原創小品，致敬小鋼珠／pachinko 玩法類型，非任一商業機台復刻。
+      </p>
+    </main>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
