@@ -87,6 +87,11 @@ export class PinfallAudio {
     this.tone(220, 0.16, "sine", 0.06, 0.1);
   }
 
+  deny() {
+    this.tone(160, 0.08, "square", 0.05);
+    this.tone(120, 0.1, "triangle", 0.04, 0.05);
+  }
+
   chargeTick() {
     this.tone(240 + Math.random() * 40, 0.02, "square", 0.03);
   }

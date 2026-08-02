@@ -59,6 +59,7 @@ function handleEvents(events) {
     else if (e === "wall") audio.wall();
     else if (e === "score") audio.score();
     else if (e === "jackpot") audio.jackpot();
+    else if (e === "deny") audio.deny();
     else if (e === "over") audio.over();
   }
 }

@@ -2,6 +2,7 @@ import {
   BALL_R,
   FIELD_LEFT,
   FIELD_RIGHT,
+  GATE_Y,
   H,
   RAIL_LEFT,
   RAIL_RIGHT,
@@ -49,19 +50,27 @@ export function drawScene(ctx, game) {
   ctx.fillStyle = "rgba(94,234,212,0.035)";
   ctx.fillRect(FIELD_LEFT, TOP_OPEN_Y, FIELD_RIGHT - FIELD_LEFT, SLOT_TOP - TOP_OPEN_Y);
 
-  // divider wall between field and rail
+  // divider wall between field and rail (opens above GATE_Y)
   ctx.fillStyle = "rgba(251,191,36,0.28)";
-  ctx.fillRect(RAIL_LEFT - 4, TOP_OPEN_Y + 28, 4, H - TOP_OPEN_Y - 28);
-  // top opening marker (where ball spills in)
-  ctx.fillStyle = "rgba(251,191,36,0.5)";
-  ctx.fillRect(RAIL_LEFT - 4, TOP_OPEN_Y, 4, 28);
-  ctx.fillStyle = "rgba(94,234,212,0.2)";
-  roundRect(ctx, FIELD_RIGHT - 36, TOP_OPEN_Y + 4, 40, 22, 6);
-  ctx.fill();
+  ctx.fillRect(RAIL_LEFT - 4, GATE_Y, 4, H - GATE_Y);
+  ctx.fillStyle = "rgba(94,234,212,0.15)";
+  ctx.fillRect(RAIL_LEFT - 4, TOP_OPEN_Y, 4, GATE_Y - TOP_OPEN_Y);
+
+  // static bumpers at rail exit
+  for (const bumper of game.bumpers) {
+    ctx.beginPath();
+    ctx.arc(bumper.x, bumper.y, bumper.r, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(251,191,36,0.35)";
+    ctx.fill();
+    ctx.strokeStyle = "rgba(253,224,71,0.75)";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+
   ctx.fillStyle = "rgba(255,255,255,0.4)";
   ctx.font = "600 9px system-ui,sans-serif";
   ctx.textAlign = "center";
-  ctx.fillText("入口", FIELD_RIGHT - 16, TOP_OPEN_Y + 16);
+  ctx.fillText("入口", FIELD_RIGHT - 18, TOP_OPEN_Y + 12);
 
   // launch rail channel
   ctx.fillStyle = "rgba(255,255,255,0.06)";
@@ -144,11 +153,11 @@ export function drawScene(ctx, game) {
 
   // waiting ball in rail
   if (game.status === "ready" && game.ballsLeft > 0) {
-    drawBall(ctx, game.launcherX, H - 72, BALL_R, 1);
+    drawBall(ctx, game.launcherX, H - 72, BALL_R, 0, 1);
   }
 
   if (game.ball?.active) {
-    drawBall(ctx, game.ball.x, game.ball.y, game.ball.r, 1);
+    drawBall(ctx, game.ball.x, game.ball.y, game.ball.r, game.ball.angle, 1);
   }
 
   // remaining balls
@@ -168,21 +177,33 @@ export function drawScene(ctx, game) {
  * @param {number} x
  * @param {number} y
  * @param {number} r
+ * @param {number} angle
  * @param {number} a
  */
-function drawBall(ctx, x, y, r, a) {
+function drawBall(ctx, x, y, r, angle, a) {
   ctx.save();
   ctx.globalAlpha = a;
-  const g = ctx.createRadialGradient(x - r * 0.35, y - r * 0.4, 1, x, y, r);
+  ctx.translate(x, y);
+  ctx.rotate(angle);
+  const g = ctx.createRadialGradient(-r * 0.35, -r * 0.4, 1, 0, 0, r);
   g.addColorStop(0, "#fef9c3");
   g.addColorStop(0.45, "#fbbf24");
   g.addColorStop(1, "#b45309");
   ctx.beginPath();
-  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.arc(0, 0, r, 0, Math.PI * 2);
   ctx.fillStyle = g;
   ctx.fill();
-  ctx.strokeStyle = "rgba(255,255,255,0.4)";
+  ctx.strokeStyle = "rgba(255,255,255,0.45)";
   ctx.lineWidth = 1;
+  ctx.stroke();
+  // spin mark
+  ctx.strokeStyle = "rgba(120,53,15,0.55)";
+  ctx.beginPath();
+  ctx.moveTo(-r * 0.45, 0);
+  ctx.lineTo(r * 0.45, 0);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(0, 0, r * 0.35, -0.6, 0.6);
   ctx.stroke();
   ctx.restore();
 }

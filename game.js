@@ -1,18 +1,28 @@
 /**
- * 釘雨落珠 — simplified pachinko-style: side rail up → fall through pegs → slot.
+ * 釘雨落珠 — pachinko-style physics:
+ * side rail ascent → gate into field → impulse peg collisions → slots.
  */
 
 export const W = 420;
 export const H = 640;
 export const BALL_R = 7;
 export const PEG_R = 5.2;
-export const GRAVITY = 1400;
-export const RESTITUTION = 0.58;
-export const FRICTION_AIR = 0.008;
+
+/** px/s² — tuned for screen scale, not SI metres. */
+export const GRAVITY = 1550;
+/** Metal-ish peg bounce (pachinko cascades, not pinball flipper). */
+export const PEG_RESTITUTION = 0.44;
+export const WALL_RESTITUTION = 0.32;
+/** Coulomb-ish tangent damping on peg hit (0..1). */
+export const PEG_FRICTION = 0.22;
+export const WALL_FRICTION = 0.35;
+/** Quadratic drag coefficient. */
+export const DRAG = 0.00055;
+export const MAX_SPEED = 2100;
+export const FIXED_DT = 1 / 320;
 export const MAX_BALLS = 3;
-/** Must clear rail height (~520px) against gravity — min ≈ √(2gh). */
-export const LAUNCH_MIN = 1280;
-export const LAUNCH_MAX = 1680;
+export const LAUNCH_MIN = 1320;
+export const LAUNCH_MAX = 1720;
 
 /** Right launch rail (no pegs). */
 export const RAIL_LEFT = W - 52;
@@ -20,6 +30,8 @@ export const RAIL_RIGHT = W - 14;
 export const FIELD_RIGHT = RAIL_LEFT - 4;
 export const FIELD_LEFT = 14;
 export const TOP_OPEN_Y = 52;
+/** Below this Y, rail's left wall opens into the field. */
+export const GATE_Y = TOP_OPEN_Y + 46;
 export const SLOT_TOP = H - 56;
 
 /**
@@ -36,6 +48,8 @@ export const SLOT_TOP = H - 56;
  * @property {number} y
  * @property {number} vx
  * @property {number} vy
+ * @property {number} omega spin rad/s (visual + light rolling feel)
+ * @property {number} angle rad
  * @property {number} r
  * @property {boolean} active
  * @property {'rail' | 'field'} phase
@@ -48,6 +62,13 @@ export const SLOT_TOP = H - 56;
  * @property {number} score
  * @property {string} label
  * @property {number} flash
+ */
+
+/**
+ * @typedef {object} StaticCircle
+ * @property {number} x
+ * @property {number} y
+ * @property {number} r
  */
 
 export class PinfallGame {
@@ -69,19 +90,25 @@ export class PinfallGame {
     this.ball = null;
     this.pegs = this.buildPegs();
     this.slots = this.buildSlots();
+    /** Corner bumper that peels the ball out of the rail. */
+    this.bumpers = /** @type {StaticCircle[]} */ ([
+      { x: RAIL_LEFT - 2, y: TOP_OPEN_Y + 22, r: 13 },
+      { x: FIELD_RIGHT - 28, y: TOP_OPEN_Y + 14, r: 9 },
+    ]);
     this.launcherX = (RAIL_LEFT + RAIL_RIGHT) / 2;
     this.shake = 0;
+    this.physAcc = 0;
   }
 
   buildPegs() {
     /** @type {Peg[]} */
     const pegs = [];
-    const top = 88;
-    const bottom = SLOT_TOP - 36;
+    const top = 96;
+    const bottom = SLOT_TOP - 40;
     const rows = 12;
     const cols = 6;
-    const x0 = FIELD_LEFT + 18;
-    const x1 = FIELD_RIGHT - 18;
+    const x0 = FIELD_LEFT + 20;
+    const x1 = FIELD_RIGHT - 22;
     for (let row = 0; row < rows; row++) {
       const y = top + (row / (rows - 1)) * (bottom - top);
       const n = row % 2 === 0 ? cols : cols - 1;
@@ -142,11 +169,14 @@ export class PinfallGame {
     this.charging = false;
     const speed = LAUNCH_MIN + this.power * (LAUNCH_MAX - LAUNCH_MIN);
     this.ballsLeft -= 1;
+    // Tiny lateral jitter only — path chaos comes from peg geometry.
     this.ball = {
-      x: this.launcherX,
+      x: this.launcherX + (Math.random() - 0.5) * 1.2,
       y: H - 72,
-      vx: (Math.random() - 0.5) * 20,
+      vx: (Math.random() - 0.5) * 12,
       vy: -speed,
+      omega: 0,
+      angle: 0,
       r: BALL_R,
       active: true,
       phase: "rail",
@@ -154,6 +184,7 @@ export class PinfallGame {
     this.status = "flying";
     this.message = "沿軌道上升…";
     this.lastGain = 0;
+    this.physAcc = 0;
     return { ok: true, events: /** @type {string[]} */ (["launch"]) };
   }
 
@@ -176,40 +207,169 @@ export class PinfallGame {
 
     /** @type {string[]} */
     const events = [];
+    this.physAcc += Math.min(dt, 0.05);
+    let guard = 0;
+    while (this.physAcc >= FIXED_DT && guard++ < 48) {
+      this.physAcc -= FIXED_DT;
+      const done = this.stepPhysics(FIXED_DT, events);
+      if (done) break;
+    }
+
+    return { events: uniqueTail(events, 8) };
+  }
+
+  /**
+   * Fixed-step semi-implicit Euler + impulse contacts.
+   * @param {number} h
+   * @param {string[]} events
+   * @returns {boolean} true if ball finished (scored / miss)
+   */
+  stepPhysics(h, events) {
     const b = this.ball;
-    const steps = Math.max(1, Math.ceil(dt / (1 / 240)));
-    const h = dt / steps;
+    if (!b?.active) return true;
 
-    for (let s = 0; s < steps; s++) {
-      b.vy += GRAVITY * h;
-      b.vx *= 1 - FRICTION_AIR * h * 60;
-      b.vy *= 1 - FRICTION_AIR * 0.25 * h * 60;
-      b.x += b.vx * h;
-      b.y += b.vy * h;
+    // gravity
+    b.vy += GRAVITY * h;
 
-      if (b.phase === "rail") {
-        this.constrainRail(b, events);
-        // Reach top opening → spill into field
-        if (b.y < TOP_OPEN_Y + b.r + 8) {
-          b.phase = "field";
-          b.y = TOP_OPEN_Y + b.r + 10;
-          b.vx = -220 - Math.random() * 160;
-          b.vy = Math.max(40, Math.abs(b.vy) * 0.25);
-          this.message = "落入釘雨";
-          events.push("enter");
+    // quadratic drag
+    const sp = Math.hypot(b.vx, b.vy);
+    if (sp > 1) {
+      const drag = DRAG * sp;
+      b.vx -= (b.vx / sp) * drag * sp * h;
+      b.vy -= (b.vy / sp) * drag * sp * h;
+    }
+
+    // integrate
+    b.x += b.vx * h;
+    b.y += b.vy * h;
+    b.angle += b.omega * h;
+    b.omega *= Math.max(0, 1 - 1.8 * h);
+
+    if (b.phase === "rail") {
+      this.constrainRail(b, events);
+      // Natural spill: above gate, left wall opens; bumper peels ball into field
+      if (b.y < GATE_Y) {
+        for (const bumper of this.bumpers) {
+          if (this.circleImpulse(b, bumper.x, bumper.y, bumper.r, PEG_RESTITUTION, PEG_FRICTION, events, "wall")) {
+            // ok
+          }
         }
-      } else {
-        this.constrainField(b, events);
-        this.collidePegs(b, events);
-
-        if (b.y + b.r >= SLOT_TOP) {
-          this.landInSlot(b, events);
-          return { events: uniqueTail(events, 8) };
+      }
+      if (b.x + b.r < RAIL_LEFT - 1) {
+        b.phase = "field";
+        this.message = "落入釘雨";
+        events.push("enter");
+      }
+      // Miss: fell back to bottom of rail
+      if (b.y - b.r > H - 58 && b.vy > 80) {
+        this.missRail(events);
+        return true;
+      }
+    } else {
+      this.constrainField(b, events);
+      for (const bumper of this.bumpers) {
+        this.circleImpulse(
+          b,
+          bumper.x,
+          bumper.y,
+          bumper.r,
+          PEG_RESTITUTION,
+          PEG_FRICTION,
+          events,
+          "wall",
+        );
+      }
+      // Multiple passes so ball doesn't sink into dense peg clusters
+      for (let pass = 0; pass < 3; pass++) {
+        let hits = 0;
+        for (const peg of this.pegs) {
+          if (
+            this.circleImpulse(
+              b,
+              peg.x,
+              peg.y,
+              peg.r,
+              PEG_RESTITUTION,
+              PEG_FRICTION,
+              events,
+              "peg",
+            )
+          ) {
+            peg.flash = 1;
+            hits++;
+          }
         }
+        if (!hits) break;
+      }
+
+      if (b.y + b.r >= SLOT_TOP) {
+        this.landInSlot(b, events);
+        return true;
       }
     }
 
-    return { events: uniqueTail(events, 6) };
+    this.clampSpeed(b);
+    return false;
+  }
+
+  /**
+   * @param {Ball} b
+   */
+  clampSpeed(b) {
+    const sp = Math.hypot(b.vx, b.vy);
+    if (sp > MAX_SPEED) {
+      const s = MAX_SPEED / sp;
+      b.vx *= s;
+      b.vy *= s;
+    }
+  }
+
+  /**
+   * Circle vs static circle: positional correction + bounce + friction.
+   * @param {Ball} b
+   * @param {number} cx
+   * @param {number} cy
+   * @param {number} cr
+   * @param {number} restitution
+   * @param {number} friction
+   * @param {string[]} events
+   * @param {string} eventName
+   */
+  circleImpulse(b, cx, cy, cr, restitution, friction, events, eventName) {
+    const dx = b.x - cx;
+    const dy = b.y - cy;
+    const dist = Math.hypot(dx, dy);
+    const min = b.r + cr;
+    if (dist >= min || dist < 1e-8) return false;
+
+    const nx = dx / dist;
+    const ny = dy / dist;
+    const tx = -ny;
+    const ty = nx;
+
+    // separate
+    const overlap = min - dist;
+    b.x += nx * overlap;
+    b.y += ny * overlap;
+
+    const vn = b.vx * nx + b.vy * ny;
+    if (vn >= 0) return false; // separating
+
+    const vt = b.vx * tx + b.vy * ty;
+
+    // normal impulse (static body, infinite mass)
+    const vnAfter = -vn * restitution;
+    // tangent: kinetic friction toward zero slip (+ light spin coupling)
+    const spinSlip = vt - b.omega * b.r * 0.15;
+    const vtAfter = spinSlip * (1 - friction);
+
+    b.vx = vnAfter * nx + vtAfter * tx;
+    b.vy = vnAfter * ny + vtAfter * ty;
+    b.omega += -spinSlip * friction * 0.08;
+
+    // impact threshold for SFX — ignore grazing
+    if (-vn > 40) events.push(eventName);
+    return true;
   }
 
   /**
@@ -217,20 +377,40 @@ export class PinfallGame {
    * @param {string[]} events
    */
   constrainRail(b, events) {
-    const left = RAIL_LEFT + b.r + 1;
-    const right = RAIL_RIGHT - b.r - 1;
-    if (b.x < left) {
-      b.x = left;
-      b.vx = Math.abs(b.vx) * 0.2;
-    } else if (b.x > right) {
+    const right = RAIL_RIGHT - b.r - 0.5;
+    if (b.x > right) {
       b.x = right;
-      b.vx = -Math.abs(b.vx) * 0.2;
+      if (b.vx > 0) {
+        const vn = b.vx;
+        b.vx = -vn * WALL_RESTITUTION;
+        b.vy *= 1 - WALL_FRICTION * 0.5;
+        if (vn > 30) events.push("wall");
+      }
     }
-    // Fell back to rail floor without clearing the top — nudge up once more
-    if (b.y > H - 68 && b.vy > 0) {
-      b.y = H - 72;
-      b.vy = -(LAUNCH_MIN + 80);
-      events.push("wall");
+
+    // Left wall only below the gate (sealed ascent channel)
+    if (b.y >= GATE_Y) {
+      const left = RAIL_LEFT + b.r + 0.5;
+      if (b.x < left) {
+        b.x = left;
+        if (b.vx < 0) {
+          const vn = -b.vx;
+          b.vx = vn * WALL_RESTITUTION;
+          b.vy *= 1 - WALL_FRICTION * 0.5;
+          if (vn > 30) events.push("wall");
+        }
+      }
+    }
+
+    // Ceiling of cabinet inside rail
+    const top = TOP_OPEN_Y + b.r;
+    if (b.y < top) {
+      b.y = top;
+      if (b.vy < 0) {
+        b.vy = -b.vy * WALL_RESTITUTION;
+        b.vx *= 1 - WALL_FRICTION;
+        events.push("wall");
+      }
     }
   }
 
@@ -243,45 +423,44 @@ export class PinfallGame {
     const right = FIELD_RIGHT - b.r;
     if (b.x < left) {
       b.x = left;
-      b.vx = Math.abs(b.vx) * RESTITUTION;
-      events.push("wall");
+      if (b.vx < 0) {
+        b.vx = -b.vx * WALL_RESTITUTION;
+        b.vy *= 1 - WALL_FRICTION * 0.4;
+        events.push("wall");
+      }
     } else if (b.x > right) {
       b.x = right;
-      b.vx = -Math.abs(b.vx) * RESTITUTION;
-      events.push("wall");
+      if (b.vx > 0) {
+        b.vx = -b.vx * WALL_RESTITUTION;
+        b.vy *= 1 - WALL_FRICTION * 0.4;
+        events.push("wall");
+      }
     }
-    if (b.y < TOP_OPEN_Y + b.r) {
-      b.y = TOP_OPEN_Y + b.r;
-      b.vy = Math.abs(b.vy) * RESTITUTION;
-      events.push("wall");
+    const top = TOP_OPEN_Y + b.r;
+    if (b.y < top) {
+      b.y = top;
+      if (b.vy < 0) {
+        b.vy = -b.vy * WALL_RESTITUTION;
+        b.vx *= 1 - WALL_FRICTION * 0.4;
+        events.push("wall");
+      }
     }
   }
 
   /**
-   * @param {Ball} b
    * @param {string[]} events
    */
-  collidePegs(b, events) {
-    for (const peg of this.pegs) {
-      const dx = b.x - peg.x;
-      const dy = b.y - peg.y;
-      const dist = Math.hypot(dx, dy);
-      const min = b.r + peg.r;
-      if (dist >= min || dist <= 1e-4) continue;
-      const nx = dx / dist;
-      const ny = dy / dist;
-      const overlap = min - dist;
-      b.x += nx * overlap;
-      b.y += ny * overlap;
-      const vn = b.vx * nx + b.vy * ny;
-      if (vn < 0) {
-        b.vx -= (1 + RESTITUTION) * vn * nx;
-        b.vy -= (1 + RESTITUTION) * vn * ny;
-        b.vx += -ny * (12 + Math.random() * 22);
-        b.vy += nx * (12 + Math.random() * 22);
-      }
-      peg.flash = 1;
-      events.push("peg");
+  missRail(events) {
+    this.ball = null;
+    this.lastGain = 0;
+    events.push("deny");
+    if (this.ballsLeft <= 0) {
+      this.status = "over";
+      this.message = `力道不足掉回 · 本局結束 · 總分 ${this.score}`;
+      events.push("over");
+    } else {
+      this.status = "ready";
+      this.message = `力道不足，珠子掉回軌道 · 剩 ${this.ballsLeft} 珠`;
     }
   }
 
@@ -315,7 +494,7 @@ export class PinfallGame {
     slot.flash = 1;
     this.lastGain = slot.score;
     this.score += slot.score;
-    this.shake = 0.55;
+    this.shake = 0.45;
     this.ball = null;
     events.push(slot.score >= 50 ? "jackpot" : "score");
 
