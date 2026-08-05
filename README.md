@@ -4,14 +4,14 @@
 
 名稱與盤面為原創小品，致敬「小鋼珠／pachinko」玩法類型，非任一商業機台復刻；純娛樂計分，無關賭博。
 
-也可當作 [Playgrounds（遊樂場）](https://samkuo.me/playgrounds/) 的 **SAM**（`index.html` 入口）。手感想再調？開進來玩，再叫 AI 幫你改一版。
+也可當作 [Playgrounds（遊樂場）](https://play.samkuo.me/) 的 **SAM**（`index.html` 入口）。手感想再調？開進來玩，再叫 AI 幫你改一版。
 
 ## 一鍵開 SAM 小
 
-**[一鍵開 SAM 小](https://samkuo.me/playgrounds/?open=sampot%2Fpg-pinfall&name=%E9%87%98%E9%9B%A8%E8%90%BD%E7%8F%A0)**
+**[一鍵開 SAM 小](https://play.samkuo.me/?open=sampot%2Fpg-pinfall&name=%E9%87%98%E9%9B%A8%E8%90%BD%E7%8F%A0)**
 
 ```
-https://samkuo.me/playgrounds/?open=sampot/pg-pinfall&name=釘雨落珠
+https://play.samkuo.me/?open=sampot/pg-pinfall&name=釘雨落珠
 ```
 
 同源會重用本機已匯入的沙盒；要強制新建可加 `&fresh=1`。
